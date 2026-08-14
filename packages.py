@@ -133,23 +133,33 @@ class PackageDeal:
 
 
 # ── 공통 유틸 ────────────────────────────────────────────────────────
-def _fetch(url: str) -> str | None:
+def _fetch(url: str, attempts: int = 3) -> str | None:
+    """여행사 페이지 한 장. 실패하면 잠깐 쉬었다 다시 시도한다.
+
+    깃허브 서버는 미국에 있어서 한국 사이트까지 붙는 데 시간이 걸린다. 실제로
+    한 번만 시도했을 때 지역 페이지 2장이 접속 시간 초과로 빠졌다(136→111건).
+    """
     global _last_fetch
-    gap = time.monotonic() - _last_fetch
-    if gap < config.PACKAGE_DELAY:
-        time.sleep(config.PACKAGE_DELAY - gap)
-    _last_fetch = time.monotonic()
-    try:
-        resp = requests.get(
-            url, timeout=config.HTTP_TIMEOUT,
-            headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"},
-        )
-        resp.raise_for_status()
-        resp.encoding = resp.apparent_encoding or resp.encoding
-        return resp.text
-    except requests.RequestException as exc:
-        print(f"  [여행사] {url} 실패: {exc}")
-        return None
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        gap = time.monotonic() - _last_fetch
+        if gap < config.PACKAGE_DELAY:
+            time.sleep(config.PACKAGE_DELAY - gap)
+        _last_fetch = time.monotonic()
+        try:
+            resp = requests.get(
+                url, timeout=config.HTTP_TIMEOUT,
+                headers={"User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"},
+            )
+            resp.raise_for_status()
+            resp.encoding = resp.apparent_encoding or resp.encoding
+            return resp.text
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(2.0 * attempt)      # 2초, 4초 쉬고 다시
+    print(f"  [여행사] {url} {attempts}번 시도 실패: {last_error}")
+    return None
 
 
 def _clean(text: str) -> str:
