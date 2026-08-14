@@ -70,7 +70,10 @@ CURRENCY = _get("CURRENCY", "krw")
 
 # 며칠 뒤부터 몇 달 앞까지 볼 것인가
 SEARCH_START_DAYS = _get_int("SEARCH_START_DAYS", 14)   # 최소 리드타임
-SEARCH_MONTHS = _get_int("SEARCH_MONTHS", 5)            # 앞으로 몇 개월치
+# 장거리는 반년 이상 앞서 특가가 풀린다. 5개월로 끊으면 유럽·미주 봄여름 특가를
+# 통째로 못 본다. 다만 먼 날짜일수록 API가 가진 자료가 얇아진다(실측: 9월 1,330건
+# → 12월 408건). 8개월이 실익과 시간의 절충점.
+SEARCH_MONTHS = _get_int("SEARCH_MONTHS", 8)            # 앞으로 몇 개월치
 
 # 여행 기간 규칙 (사용자 요구사항)
 NEAR_MIN_DAYS = _get_int("NEAR_MIN_DAYS", 2)
