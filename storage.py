@@ -313,6 +313,29 @@ def remove_subscriber(chat_id: str) -> None:
         conn.execute("UPDATE subscribers SET enabled=0 WHERE chat_id=?", (str(chat_id),))
 
 
+def scrub_private() -> int:
+    """공개 저장소에 올리기 전, DB에서 개인 정보를 지운다.
+
+    가격 이력은 깃허브에 커밋해야 '평소 가격'이 쌓인다. 그런데 같은 파일에
+    내 텔레그램 chat_id 가 들어 있어서 그대로 올리면 공개된다.
+    깃허브에서 돌 때 받는 사람은 TELEGRAM_CHAT_ID 환경변수로 들어오므로
+    DB에 남길 필요가 없다.
+    """
+    with db() as conn:
+        n = conn.execute("DELETE FROM subscribers").rowcount
+        conn.execute("DELETE FROM meta WHERE key='tg_offset'")
+
+    # DELETE 만으로는 안 지워진다. 지운 자리가 빈 공간으로 남고 옛 값이 파일에
+    # 그대로 남아 있어서, 표에는 안 보여도 파일을 열어 보면 읽힌다.
+    # VACUUM 이 파일을 처음부터 다시 써야 진짜로 사라진다.
+    vac = sqlite3.connect(config.DB_PATH, isolation_level=None)
+    try:
+        vac.execute("VACUUM")
+    finally:
+        vac.close()
+    return n
+
+
 def subscribers() -> list[str]:
     with db() as conn:
         rows = conn.execute("SELECT chat_id FROM subscribers WHERE enabled=1").fetchall()

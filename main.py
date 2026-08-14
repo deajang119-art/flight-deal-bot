@@ -210,6 +210,9 @@ def main() -> int:
                           f"[{d.pkg.source_ko}] {d.pkg.title[:52]}")
         for name in pkg_mod.broken_sources(health):
             print(f"  ⚠ {name}: 0건 — 사이트 구조 변경 의심")
+    elif command == "scrub":
+        n = storage.scrub_private()
+        print(f"개인 정보 지움 (구독자 {n}건). 이제 DB를 공개해도 된다.")
     elif command == "hours":
         hours = storage.new_low_hours()
         total = sum(hours.values())

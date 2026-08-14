@@ -1,6 +1,15 @@
-﻿.env
-__pycache__/
-data/
-*.pyc
+# 토큰. 절대 올리지 않는다.
+.env
 
+# 가격 이력 DB만 올린다. 깃허브에서 돌 때 '평소 가격'을 알아야 하는데,
+# 깃허브 서버는 실행이 끝나면 흔적을 다 지우기 때문이다.
+data/*
+!data/deals.db
+
+# SQLite 임시 파일
+*.db-wal
+*.db-shm
+
+__pycache__/
+*.pyc
 logs/

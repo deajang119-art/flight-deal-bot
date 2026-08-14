@@ -1,0 +1,70 @@
+name: 특가 스캔
+
+# 깃허브 서버가 대신 돌린다. 내 컴퓨터가 꺼져 있어도 알림이 온다.
+# cron 은 UTC 기준이라 한국 시간에서 9시간을 뺀다.
+#   10:30 KST = 01:30 UTC
+#   22:30 KST = 13:30 UTC
+# 깃허브가 바쁘면 정시보다 5~30분 늦게 돈다. 정확한 시각은 보장되지 않는다.
+on:
+  schedule:
+    - cron: "30 1 * * *"
+    - cron: "30 13 * * *"
+  workflow_dispatch:        # 버튼으로 직접 돌릴 때
+
+# 가격 이력을 저장소에 되돌려 커밋해야 하므로 쓰기 권한이 필요하다
+permissions:
+  contents: write
+
+# 앞 실행이 안 끝났으면 새로 시작하지 않는다(가격 이력 커밋이 충돌한다)
+concurrency:
+  group: scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 훑고 알림 보내기
+        env:
+          # 토큰은 저장소가 아니라 깃허브 금고(Settings > Secrets)에서 온다
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          # 로그와 '새 최저가 시각' 집계를 한국 시간으로 남긴다
+          TZ: Asia/Seoul
+        run: python -u main.py scan
+
+      - name: 가격 이력 저장
+        # 스캔이 실패해도 그때까지 모은 건 남긴다
+        if: always()
+        run: |
+          if [ ! -f data/deals.db ]; then
+            echo "저장할 이력이 없다"
+            exit 0
+          fi
+          # 공개 저장소이므로 내 텔레그램 ID 같은 개인 정보를 먼저 지운다.
+          # 받는 사람은 TELEGRAM_CHAT_ID 금고 값으로 들어오니 DB에 없어도 된다.
+          python main.py scrub
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f data/deals.db
+          if git diff --staged --quiet; then
+            echo "바뀐 이력 없음"
+            exit 0
+          fi
+          git commit -m "가격 이력 갱신 $(date '+%Y-%m-%d %H:%M')"
+          # 앞 실행이 먼저 밀어 넣었을 수 있으니 한 번 당겨 온다
+          git pull --rebase --autostash || true
+          git push
