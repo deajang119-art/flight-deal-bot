@@ -1,0 +1,20 @@
+name: 진단
+
+# 항공권 API가 깃허브에서만 401 을 내는 이유를 가리는 임시 워크플로.
+# 원인이 확인되면 지운다.
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - env:
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+        run: python -u _diag_api.py
