@@ -27,7 +27,14 @@ _load_env_file(ROOT / ".env")
 
 
 def _get(key: str, default: str = "") -> str:
-    return os.environ.get(key, default).strip()
+    """환경변수를 읽되 보이지 않는 찌꺼기를 떼어 낸다.
+
+    깃허브 금고에 토큰을 넣을 때 앞에 BOM(\\ufeff)이 딸려 들어간 적이 있다.
+    눈에 안 보이고 공백도 아니라서 strip() 으로 안 걸러지는데, 토큰은 한 글자만
+    달라도 401 이 난다. 실제로 이것 때문에 항공권 조회가 전부 죽었다.
+    """
+    value = os.environ.get(key, default)
+    return value.strip().lstrip("﻿").strip()
 
 
 def _get_int(key: str, default: int) -> int:
