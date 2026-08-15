@@ -58,7 +58,7 @@ def scan_travelpayouts(targets: list) -> list[Deal]:
     return candidates
 
 
-def scan_naver(targets: list) -> list[Deal]:
+def scan_naver(targets: list) -> tuple[list[Deal], bool]:
     """네이버 경로 — 같은 달 평소가 대비. 이력이 필요 없어 첫날부터 제대로 판정한다.
 
     ⚠관측을 DB에 쌓지 않는다. 한 번에 목적지당 200~350건씩 오는데(전체 약
@@ -66,7 +66,7 @@ def scan_naver(targets: list) -> list[Deal]:
     몇 배로 불어난다. 이 경로는 판정에 이력이 필요 없으므로 안 쌓아도 된다.
     """
     if not config.NAVER_ENABLED:
-        return []
+        return [], True
 
     _log(f"항공권(네이버): {len(targets)}곳 훑는 중")
     candidates: list[Deal] = []
@@ -79,15 +79,20 @@ def scan_naver(targets: list) -> list[Deal]:
             _log(f"  {i}/{len(targets)}곳 · 비교 {total_rows}건 · 후보 {len(candidates)}건")
         time.sleep(0.25)          # 네이버 서버를 몰아치지 않는다
     _log(f"항공권(네이버): 비교 {total_rows}건 → 후보 {len(candidates)}건")
-    return candidates
+    # ⚠한 곳도 못 읽었으면 조용히 넘어가면 안 된다. 화면 개편일 수도 있고,
+    # 깃허브 러너(미국)에서 한국 사이트가 막힌 것일 수도 있다. 둘 다 워크플로는
+    # "성공"으로 끝나서 로그를 안 보면 영영 모른다.
+    return candidates, total_rows > 0
 
 
-def scan_flights() -> list[Deal]:
+def scan_flights() -> tuple[list[Deal], list[str]]:
     targets = destinations.DESTINATIONS
-    candidates = scan_travelpayouts(targets) + scan_naver(targets)
+    from_tp = scan_travelpayouts(targets)
+    from_naver, naver_ok = scan_naver(targets)
+    candidates = from_tp + from_naver
     fresh = deals_mod.filter_new(candidates)
     _log(f"항공권: 후보 {len(candidates)}건 → 쿨다운 통과 {len(fresh)}건")
-    return deals_mod.verify(fresh)
+    return deals_mod.verify(fresh), ([] if naver_ok else ["네이버 항공권"])
 
 
 # ── 여행사 ───────────────────────────────────────────────────────────
@@ -105,8 +110,9 @@ def scan_packages() -> tuple[list[PackageDeal], list[str]]:
 # ── 한 바퀴 ──────────────────────────────────────────────────────────
 def run_once() -> int:
     storage.init()
-    flight_deals = scan_flights()
+    flight_deals, flight_broken = scan_flights()
     package_deals, broken = scan_packages()
+    broken = flight_broken + broken
 
     if not flight_deals and not package_deals:
         _log("보낼 알림 없음")
