@@ -103,7 +103,7 @@ def _add_query(url: str, extra: str) -> str:
 
 
 def booking_sites(origin: str, dest: str, depart: str, back: str,
-                  direct_link: str = "") -> list[tuple[str, str]]:
+                  direct_link: str = "", source: str = "") -> list[tuple[str, str]]:
     """이 노선·이 날짜로 바로 열리는 예매 사이트 (이름, 주소) 목록.
 
     순서는 '바로 그 값이 나올 확률' 순이다.
@@ -125,20 +125,25 @@ def booking_sites(origin: str, dest: str, depart: str, back: str,
               f"Flights%20from%20{origin}%20to%20{dest}%20on%20{depart}%20returning%20{back}")
 
     sites: list[tuple[str, str]] = []
-    if direct_link:
+    if direct_link and source == "naver":
+        # 네이버에서 찾은 값이면 그 링크가 곧 네이버 화면이다. 두 번 깔지 않는다.
+        sites.append(("🇰🇷 네이버(이 일정)", direct_link))
+    elif direct_link:
         sites.append(("🎫 아비아세일즈(이 가격)", _add_query(direct_link, "currency=krw")))
-    sites.append(("🇰🇷 네이버항공권", naver))
+        sites.append(("🇰🇷 네이버항공권", naver))
+    else:
+        sites.append(("🇰🇷 네이버항공권", naver))
     sites.append(("🌐 스카이스캐너", sky))
     sites.append(("🔎 구글플라이트", google))
     return sites
 
 
 def booking_links(origin: str, dest: str, depart: str, back: str,
-                  direct_link: str = "") -> str:
+                  direct_link: str = "", source: str = "") -> str:
     """같은 주소를 본문 글자 링크 한 줄로."""
     return " · ".join(
         f'<a href="{_esc(url)}">{_esc(label.split(" ", 1)[-1])}</a>'
-        for label, url in booking_sites(origin, dest, depart, back, direct_link)
+        for label, url in booking_sites(origin, dest, depart, back, direct_link, source)
     )
 
 
@@ -154,7 +159,12 @@ def _date_ko(iso: str) -> str:
 def format_deal(deal: Deal) -> str:
     o = deal.offer
     head = "🔥 대박" if deal.is_jackpot else "✈️ 특가"
-    tier = "짧게 다녀오기" if deal.dest.window[2] == "near" else "길게 다녀오기"
+    lo, hi, kind = deal.dest.window
+    if lo <= o.days <= hi:
+        tier = "짧게 다녀오기" if kind == "near" else "길게 다녀오기"
+    else:
+        # 네이버 경로는 거리별 일수 규칙을 안 걸어서 이런 일정이 올라온다
+        tier = "평소 규칙보다 긴 일정" if o.days > hi else "평소 규칙보다 짧은 일정"
 
     route = f"{config.ORIGIN_CITY_KO} → {deal.dest.name_ko}"
     lines = [
@@ -180,14 +190,14 @@ def format_deal(deal: Deal) -> str:
     lines.append("")
     lines.append("👇 <b>예매하러 가기</b> — 아래 버튼을 누르면 이 날짜로 바로 열린다")
     lines.append(booking_links(o.origin, o.destination, o.depart_date,
-                               o.return_date, o.link))
+                               o.return_date, o.link, o.source))
     return "\n".join(lines)
 
 
 def deal_buttons(deal: Deal) -> list[tuple[str, str]]:
     o = deal.offer
     return booking_sites(o.origin, o.destination, o.depart_date,
-                         o.return_date, o.link)
+                         o.return_date, o.link, o.source)
 
 
 # ── 여행사 자유여행 특가 ─────────────────────────────────────────────

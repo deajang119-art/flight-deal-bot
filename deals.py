@@ -41,6 +41,7 @@ class Deal:
     notes: list[str] = field(default_factory=list)
     basis: str = "평소가"           # 무엇과 비교해 걸렸는지
     week_low_pct: float = 0.0      # 최근 7일 최저가 대비 하락폭
+    month_pct: float = 0.0         # 네이버 '같은 달 평소가' 대비 하락폭
 
     @property
     def key(self) -> str:
@@ -48,12 +49,14 @@ class Deal:
 
     @property
     def is_jackpot(self) -> bool:
-        return (self.drop_pct >= config.JACKPOT_DROP_PCT
-                or self.week_low_pct >= config.JACKPOT_DROP_PCT)
+        return max(self.drop_pct, self.week_low_pct,
+                   self.month_pct) >= config.JACKPOT_DROP_PCT
 
     @property
     def headline_pct(self) -> float:
         """제목에 쓸 하락폭. 무엇에 걸려 알림이 났는지와 같은 기준이어야 한다."""
+        if self.month_pct:
+            return self.month_pct
         return self.week_low_pct if self.basis != "평소가" else self.drop_pct
 
     @property
@@ -154,6 +157,52 @@ def evaluate(dest: Destination, offers: list[Offer]) -> list[Deal]:
     return found
 
 
+def evaluate_month(dest: Destination,
+                   priced: list[tuple[Offer, float, str, int]]) -> list[Deal]:
+    """네이버 경로 전용 판정 — '같은 달 평소가'보다 MONTH_DROP_PCT 이상 싼 것.
+
+    이력이 필요 없다. 네이버가 그 달의 다른 날짜들을 한꺼번에 주기 때문에
+    평소값을 그 자리에서 낸다(naver.month_baselines).
+
+    ⚠거리별 일수 규칙은 여기서 걸지 않는다. 그 규칙 때문에 싼 값을 통째로
+    놓치고 있었던 게 이 경로를 만든 이유다.
+    """
+    found: list[Deal] = []
+    for offer, baseline, basis, peers in sorted(priced, key=lambda x: x[0].price):
+        if baseline <= 0:
+            continue
+        drop = (baseline - offer.price) / baseline * 100.0
+        if drop < config.MONTH_DROP_PCT:
+            continue
+
+        w = weather.score(dest, offer.depart_date)
+        w_score = w["score"]
+        if w_score is None:
+            w_score = float(config.MIN_WEATHER_SCORE)
+        elif w_score < config.MIN_WEATHER_SCORE:
+            continue
+
+        deal = Deal(
+            offer=offer,
+            dest=dest,
+            baseline=round(baseline),
+            drop_pct=round(drop, 1),
+            weather_score=w_score,
+            weather_summary=w["summary"],
+            samples=peers,
+            basis=f"네이버 {basis}",
+            month_pct=round(drop, 1),
+        )
+        deal.rank = _rank(drop, w_score, offer.transfers)
+        deal.notes.append(f"네이버 {basis} {peers}건과 견줌")
+        if offer.transfers == 0:
+            deal.notes.append("직항")
+        found.append(deal)
+        if len(found) >= MAX_PER_DEST:
+            break
+    return found
+
+
 def filter_new(candidates: list[Deal]) -> list[Deal]:
     """쿨다운에 걸린 건 빼고, 순위대로 잘라낸다."""
     fresh = [
@@ -161,7 +210,13 @@ def filter_new(candidates: list[Deal]) -> list[Deal]:
         if not storage.recently_alerted(d.key, config.ALERT_COOLDOWN_HOURS, d.offer.price)
     ]
     fresh.sort(key=lambda d: d.rank, reverse=True)
-    return fresh[: config.MAX_ALERTS_PER_SCAN]
+    # 두 경로(Travelpayouts·네이버)가 같은 날짜를 함께 잡을 수 있다.
+    # 같은 노선·같은 날짜는 순위가 높은 쪽 하나만 보낸다.
+    best: dict[str, Deal] = {}
+    for d in fresh:
+        if d.key not in best:
+            best[d.key] = d
+    return list(best.values())[: config.MAX_ALERTS_PER_SCAN]
 
 
 def verify(deals: list[Deal]) -> list[Deal]:

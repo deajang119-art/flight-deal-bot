@@ -20,6 +20,7 @@ import config
 import deals as deals_mod
 import destinations
 import flights
+import naver
 import notify
 import packages as pkg_mod
 import storage
@@ -33,14 +34,16 @@ def _log(msg: str) -> None:
 
 
 # ── 항공권 ───────────────────────────────────────────────────────────
-def scan_flights() -> list[Deal]:
+def scan_travelpayouts(targets: list) -> list[Deal]:
+    """이력 기반 경로 — 중앙값 대비, 7일 최저가 대비(Drops 방식)."""
     if not config.TRAVELPAYOUTS_TOKEN:
         _log("항공권: TRAVELPAYOUTS_TOKEN이 없어 건너뛴다")
         return []
 
-    targets = destinations.DESTINATIONS
-    _log(f"항공권: 목적지 {len(targets)}곳 × {config.SEARCH_MONTHS}개월 훑는 중")
-
+    # ⚠국내선은 Travelpayouts 가 LCC 직판을 거의 못 봐서 값이 두 배로 나온다.
+    # 잘못된 '평소가'를 만들지 않도록 이 경로에서는 뺀다(네이버가 본다).
+    targets = [d for d in targets if "국내" not in d.tags]
+    _log(f"항공권(Travelpayouts): {len(targets)}곳 × {config.SEARCH_MONTHS}개월 훑는 중")
     candidates: list[Deal] = []
     total_obs = 0
     for i, dest in enumerate(targets, 1):
@@ -51,10 +54,39 @@ def scan_flights() -> list[Deal]:
         candidates.extend(deals_mod.evaluate(dest, offers))
         if i % 20 == 0:
             _log(f"  {i}/{len(targets)}곳 · 관측 {total_obs}건 · 후보 {len(candidates)}건")
+    _log(f"항공권(Travelpayouts): 관측 {total_obs}건 → 후보 {len(candidates)}건")
+    return candidates
 
-    _log(f"항공권: 관측 {total_obs}건 → 후보 {len(candidates)}건")
+
+def scan_naver(targets: list) -> list[Deal]:
+    """네이버 경로 — 같은 달 평소가 대비. 이력이 필요 없어 첫날부터 제대로 판정한다.
+
+    ⚠관측을 DB에 쌓지 않는다. 한 번에 목적지당 200~350건씩 오는데(전체 약
+    19,000건) 그대로 저장하면 매 실행마다 저장소에 되커밋하는 DB가 하루 만에
+    몇 배로 불어난다. 이 경로는 판정에 이력이 필요 없으므로 안 쌓아도 된다.
+    """
+    if not config.NAVER_ENABLED:
+        return []
+
+    _log(f"항공권(네이버): {len(targets)}곳 훑는 중")
+    candidates: list[Deal] = []
+    total_rows = 0
+    for i, dest in enumerate(targets, 1):
+        priced = naver.scan_destination(dest)
+        total_rows += len(priced)
+        candidates.extend(deals_mod.evaluate_month(dest, priced))
+        if i % 20 == 0:
+            _log(f"  {i}/{len(targets)}곳 · 비교 {total_rows}건 · 후보 {len(candidates)}건")
+        time.sleep(0.25)          # 네이버 서버를 몰아치지 않는다
+    _log(f"항공권(네이버): 비교 {total_rows}건 → 후보 {len(candidates)}건")
+    return candidates
+
+
+def scan_flights() -> list[Deal]:
+    targets = destinations.DESTINATIONS
+    candidates = scan_travelpayouts(targets) + scan_naver(targets)
     fresh = deals_mod.filter_new(candidates)
-    _log(f"항공권: 쿨다운 통과 {len(fresh)}건")
+    _log(f"항공권: 후보 {len(candidates)}건 → 쿨다운 통과 {len(fresh)}건")
     return deals_mod.verify(fresh)
 
 

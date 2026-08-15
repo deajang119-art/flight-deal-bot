@@ -84,6 +84,22 @@ FAR_MAX_DAYS = _get_int("FAR_MAX_DAYS", 14)
 # 근거리/장거리 경계 (인천 기준 대권거리 km)
 NEAR_FAR_KM = _get_int("NEAR_FAR_KM", 4500)
 
+# ── 네이버 항공권 (가격그래프·추천일정과 같은 자료) ──────────────────
+# 국내선과 국내 LCC 값은 네이버가 훨씬 정확하다. 키가 필요 없다.
+NAVER_ENABLED = _get("NAVER_ENABLED", "1") not in ("0", "false", "no")
+NAVER_ORIGIN_CITY = _get("NAVER_ORIGIN_CITY", "SEL")   # 서울(김포+인천) 통합 코드
+# '같은 달 평소가' 대비 이만큼 싸면 딜. 네이버 가격그래프를 눈으로 볼 때와 같은 기준.
+MONTH_DROP_PCT = _get_float("MONTH_DROP_PCT", 30.0)
+# ⚠거리별 여행 일수 규칙(2~4일 / 7~14일)을 여기엔 적용하지 않는다. 근거리를
+# 2~4일로 묶어 보다가 싼 값을 통째로 놓쳤다(실측 2026-08-15: 도쿄 14일
+# 182,235원 vs 2~4일 233,666원, 삿포로 7일 264,342원 vs 2~4일 361,840원).
+NAVER_MIN_DAYS = _get_int("NAVER_MIN_DAYS", 2)
+NAVER_MAX_DAYS = _get_int("NAVER_MAX_DAYS", 14)
+# 이만큼은 모여야 그 달의 '평소값'을 말할 수 있다
+NAVER_MIN_PEERS = _get_int("NAVER_MIN_PEERS", 8)
+# 달 기준값이 노선 전 기간 중앙값의 이 배를 넘으면 표본이 얇은 것이라 버린다
+NAVER_MAX_BASELINE_RATIO = _get_float("NAVER_MAX_BASELINE_RATIO", 1.6)
+
 # ── 딜 판정 기준 ─────────────────────────────────────────────────────
 # 평균가(중앙값) 대비 이만큼 이상 싸야 "딜"
 DEAL_DROP_PCT = _get_float("DEAL_DROP_PCT", 25.0)
@@ -172,6 +188,9 @@ def summary() -> str:
         f" (경계 {NEAR_FAR_KM:,}km)",
         f"항공권 딜 -{DEAL_DROP_PCT:.0f}% 이상 · 대박 -{JACKPOT_DROP_PCT:.0f}%",
         f"또는 최근 {WEEK_LOW_DAYS}일 최저가 대비 -{WEEK_LOW_DROP_PCT:.0f}% (Drops 방식)",
+        (f"또는 네이버 같은 달 평소가 대비 -{MONTH_DROP_PCT:.0f}%"
+         f" ({NAVER_MIN_DAYS}~{NAVER_MAX_DAYS}일 일정)" if NAVER_ENABLED
+         else "네이버 경로 꺼짐"),
         f"날씨 하한 {MIN_WEATHER_SCORE:.0f}점",
         f"쿨다운 {ALERT_COOLDOWN_HOURS}시간 · 스캔당 최대 {MAX_ALERTS_PER_SCAN}건",
     ]
