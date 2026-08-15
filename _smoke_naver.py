@@ -56,7 +56,7 @@ assert len(priced) <= len(usable)
 
 # 4. 판정까지 ────────────────────────────────────────────────────────
 found = 0
-for iata in ("CTS", "FUK", "NRT", "CJU"):
+for iata in ("CTS", "FUK", "NRT", "WEH"):
     d = BY_IATA[iata]
     scanned = naver.scan_destination(d)
     got = deals_mod.evaluate_month(d, scanned)

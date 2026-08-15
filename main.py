@@ -41,7 +41,7 @@ def scan_travelpayouts(targets: list) -> list[Deal]:
         return []
 
     # ⚠국내선은 Travelpayouts 가 LCC 직판을 거의 못 봐서 값이 두 배로 나온다.
-    # 잘못된 '평소가'를 만들지 않도록 이 경로에서는 뺀다(네이버가 본다).
+    # 지금 목적지에 국내는 없지만, 나중에 넣더라도 이 경로에는 들어오면 안 된다.
     targets = [d for d in targets if "국내" not in d.tags]
     _log(f"항공권(Travelpayouts): {len(targets)}곳 × {config.SEARCH_MONTHS}개월 훑는 중")
     candidates: list[Deal] = []
