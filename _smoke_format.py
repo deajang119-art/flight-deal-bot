@@ -1,4 +1,8 @@
-"""텔레그램 메시지 서식 확인. 토큰 없이 화면에만 찍는다."""
+"""텔레그램 메시지 서식 확인. 토큰 없이 화면에만 찍는다.
+
+버튼(inline keyboard)도 같이 찍는다. 주소가 http 로 시작하지 않으면 텔레그램이
+메시지를 통째로 거부하니, 여기서 눈으로 확인하고 넘어가는 게 안전하다.
+"""
 import notify, weather, storage
 from deals import Deal
 from destinations import BY_IATA
@@ -6,6 +10,21 @@ from flights import Offer
 from packages import Package, PackageDeal
 
 storage.init()
+
+
+def show_buttons(buttons):
+    """말풍선 아래 버튼이 어떻게 깔리는지 그대로 그려 본다."""
+    markup = notify.keyboard(buttons)
+    if not markup:
+        print("  [버튼 없음]")
+        return
+    for row in markup["inline_keyboard"]:
+        print("  " + "   ".join(f"[ {b['text']} ]" for b in row))
+    for row in markup["inline_keyboard"]:
+        for b in row:
+            assert b["url"].startswith("http"), f"주소가 이상하다: {b['url']}"
+            print(f"    {b['text']} → {b['url']}")
+
 
 dest = BY_IATA["BKK"]
 w = weather.score(dest, "2026-11-12")
@@ -24,6 +43,7 @@ print("=" * 60)
 print("항공권 딜")
 print("=" * 60)
 print(notify.format_deal(deal))
+show_buttons(notify.deal_buttons(deal))
 
 # Drops 방식(7일 최저가 대비)으로 걸린 경우
 dest2 = BY_IATA["FUK"]
@@ -44,6 +64,7 @@ print("=" * 60)
 print("항공권 딜 — 스카이스캐너 Drops 방식으로 걸린 경우")
 print("=" * 60)
 print(notify.format_deal(deal2))
+show_buttons(notify.deal_buttons(deal2))
 
 pkg = Package(
     source="webtour", source_ko="웹투어", code="APAVN0110",
@@ -60,3 +81,4 @@ print("=" * 60)
 print("여행사 자유여행 특가")
 print("=" * 60)
 print(notify.format_package(pdeal))
+show_buttons(notify.package_buttons(pdeal))

@@ -241,7 +241,11 @@ def main() -> int:
         print(f"\n항공권 관측 {s['observations']:,}건 · 노선 {s['routes']}개")
         print(f"구독자 {len(storage.subscribers())}명")
     elif command == "test":
-        if notify.send("연결 확인. 이 메시지가 보이면 준비 끝이다.\n\n" + notify.HELP):
+        # 버튼이 진짜 열리는지까지 확인한다. 예시는 도쿄 9/1~9/3.
+        demo = notify.booking_sites("ICN", "NRT", "2026-09-01", "2026-09-03")
+        if notify.send("연결 확인. 이 메시지가 보이면 준비 끝이다.\n\n"
+                       "아래 버튼을 눌러 예매 사이트가 열리는지 봐라"
+                       " (도쿄 9/1~9/3 예시).\n\n" + notify.HELP, buttons=demo):
             print("보냈다.")
         else:
             print("실패. TELEGRAM_BOT_TOKEN과 TELEGRAM_CHAT_ID를 확인해라.")
