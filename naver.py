@@ -127,10 +127,20 @@ def _iso(date8: str) -> str:
     return f"{date8[:4]}-{date8[4:6]}-{date8[6:8]}"
 
 
+def normal_start() -> dt.date:
+    """이 날짜부터가 '정상 구간'이다. 그 앞은 임박 구간."""
+    return dt.date.today() + dt.timedelta(days=config.SEARCH_START_DAYS)
+
+
 def usable_rows(rows: list[dict]) -> list[dict]:
-    """리드타임·기간·일수 조건을 통과한 표만."""
+    """리드타임·기간·일수 조건을 통과한 표만.
+
+    임박 특가를 켜면 모레부터 본다. 끄면 예전처럼 리드타임 바깥만 본다.
+    """
     today = dt.date.today()
-    earliest = today + dt.timedelta(days=config.SEARCH_START_DAYS)
+    earliest = today + dt.timedelta(
+        days=config.LASTMINUTE_MIN_DAYS if config.LASTMINUTE_ENABLED
+        else config.SEARCH_START_DAYS)
     latest = today + dt.timedelta(days=int(config.SEARCH_MONTHS * 30.4))
     keep = []
     for r in rows:
@@ -148,34 +158,63 @@ def usable_rows(rows: list[dict]) -> list[dict]:
     return keep
 
 
-def month_baselines(rows: list[dict]) -> dict[int, tuple[float, str, int]]:
-    """표마다 '그 달의 평소값'을 매긴다. 반환은 id(row) → (평소값, 근거, 표본수).
+def is_lastminute(row: dict) -> bool:
+    """리드타임 안쪽(기본 14일) 출발인가."""
+    try:
+        return dt.date.fromisoformat(_iso(row["departureDate"])) < normal_start()
+    except (ValueError, KeyError):
+        return False
 
+
+def month_baselines(rows: list[dict]) -> dict[int, tuple[float, str, int, bool]]:
+    """표마다 평소값을 매긴다. 반환은 id(row) → (평소값, 근거, 표본수, 임박여부).
+
+    **정상 구간**(리드타임 바깥)은 '같은 달 평소가'와 견준다.
     같은 목적지라도 3일과 14일은 값이 다르고 직항과 경유도 다르다. 그래서
         같은 출발월 · 같은 일수 · 직항/경유 구분
     이 같은 표들의 중앙값을 평소값으로 쓴다. 그 무리가 얇으면 일수를 버킷으로
     넓히고, 그래도 얇으면 평소값을 말하지 않는다(=판정 안 함).
 
+    **임박 구간**(리드타임 안쪽)은 같은 달과 견줄 수가 없다. 남은 날짜가 전부
+    임박이라 비교 상대가 다 같이 비싸서, 그 안에서 중앙값을 내면 '임박 프리미엄'
+    이 통째로 기준선에 섞인다. 그래서 **정상 구간 표들의 중앙값**과 견준다.
+    "코앞인데도 평소만큼 싸다"가 진짜 임박 특가다.
+
     ⚠먼 달은 네이버가 가진 표가 몇 장 없어 중앙값이 위로 튄다. 실측에서
     2027년 8월 하노이가 '평소 120만원'으로 잡혀 37만원짜리가 -69% 특가로
     둔갑했다. 그래서 노선 전 기간 중앙값의 몇 배가 넘는 달 기준값은 버린다.
     """
+    normal = [r for r in rows if not is_lastminute(r)]
+
     exact: dict[tuple, list[int]] = defaultdict(list)
     loose: dict[tuple, list[int]] = defaultdict(list)
     whole: dict[tuple, list[int]] = defaultdict(list)
-    for r in rows:
+    # ⚠기준선은 정상 구간 표로만 만든다. 임박 표를 섞으면 임박 프리미엄이
+    # 기준선에 들어가 '비싼 게 싼 것'으로 보인다.
+    for r in normal:
         month = r["departureDate"][:6]
         exact[(month, r["tripDays"], r["stops"])].append(r["minPrice"])
         loose[(month, _bucket_of(r["tripDays"]), r["stops"])].append(r["minPrice"])
         whole[(_bucket_of(r["tripDays"]), r["stops"])].append(r["minPrice"])
 
-    out: dict[int, tuple[float, str, int]] = {}
+    out: dict[int, tuple[float, str, int, bool]] = {}
     for r in rows:
+        lo, hi = _bucket_of(r["tripDays"])
+        route = whole[((lo, hi), r["stops"])]
+        route_median = statistics.median(route) if len(route) >= 12 else None
+
+        if is_lastminute(r):
+            peers = route
+            if len(peers) < config.NAVER_MIN_PEERS:
+                continue
+            out[id(r)] = (statistics.median(peers),
+                          f"평소 {lo}~{hi}일짜리 값", len(peers), True)
+            continue
+
         month = r["departureDate"][:6]
         peers = exact[(month, r["tripDays"], r["stops"])]
         basis = f"{int(month[4:])}월 {r['tripDays']}일짜리 일정"
         if len(peers) < config.NAVER_MIN_PEERS:
-            lo, hi = _bucket_of(r["tripDays"])
             peers = loose[(month, (lo, hi), r["stops"])]
             basis = f"{int(month[4:])}월 {lo}~{hi}일짜리 일정"
         if len(peers) < config.NAVER_MIN_PEERS:
@@ -183,12 +222,9 @@ def month_baselines(rows: list[dict]) -> dict[int, tuple[float, str, int]]:
         baseline = statistics.median(peers)
         if baseline <= 0:
             continue
-        route = whole[(_bucket_of(r["tripDays"]), r["stops"])]
-        if len(route) >= 12:
-            route_median = statistics.median(route)
-            if baseline > route_median * config.NAVER_MAX_BASELINE_RATIO:
-                continue          # 표본이 얇아 위로 튄 달 — 못 믿는다
-        out[id(r)] = (baseline, basis, len(peers))
+        if route_median and baseline > route_median * config.NAVER_MAX_BASELINE_RATIO:
+            continue              # 표본이 얇아 위로 튄 달 — 못 믿는다
+        out[id(r)] = (baseline, basis, len(peers), False)
     return out
 
 
@@ -210,8 +246,8 @@ def to_offer(dest: Destination, row: dict) -> Offer:
     )
 
 
-def scan_destination(dest: Destination) -> list[tuple[Offer, float, str, int]]:
-    """한 목적지에서 (표, 평소값, 근거, 표본수) 목록. 평소값을 못 매긴 표는 뺀다."""
+def scan_destination(dest: Destination) -> list[tuple[Offer, float, str, int, bool]]:
+    """한 목적지에서 (표, 평소값, 근거, 표본수, 임박여부). 평소값을 못 매긴 표는 뺀다."""
     rows = usable_rows(fetch(dest.iata))
     if not rows:
         return []
@@ -221,6 +257,6 @@ def scan_destination(dest: Destination) -> list[tuple[Offer, float, str, int]]:
         found = baselines.get(id(r))
         if not found:
             continue
-        baseline, basis, peers = found
-        out.append((to_offer(dest, r), baseline, basis, peers))
+        baseline, basis, peers, last = found
+        out.append((to_offer(dest, r), baseline, basis, peers, last))
     return out

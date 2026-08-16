@@ -54,6 +54,21 @@ print(f"3) 쓸 수 있는 표 {len(usable)}건 · 평소값을 매긴 표 {len(p
       f"(못 매긴 {len(usable) - len(priced)}건 = 표본이 얇은 달)")
 assert len(priced) <= len(usable)
 
+# 3-1. 임박 구간 ──────────────────────────────────────────────────────
+# ⚠임박 표의 기준선은 반드시 '정상 구간' 값이라야 한다. 임박끼리 비교하면
+# 임박 프리미엄이 기준선에 섞여 비싼 게 싼 것으로 보인다.
+last = [r for r in usable if naver.is_lastminute(r)]
+print(f"3-1) 임박 표 {len(last)}건 (정상 구간 시작 {naver.normal_start()})")
+for r in last:
+    got = priced.get(id(r))
+    if got:
+        assert got[3] is True, "임박 표인데 정상 구간 기준선이 붙었다"
+        assert "평소" in got[1], got[1]
+for r in usable:
+    if not naver.is_lastminute(r) and id(r) in priced:
+        assert priced[id(r)][3] is False, "정상 표인데 임박으로 잡혔다"
+print("     기준선 종류 확인 통과")
+
 # 4. 판정까지 ────────────────────────────────────────────────────────
 found = 0
 for iata in ("CTS", "FUK", "NRT", "WEH"):

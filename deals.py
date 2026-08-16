@@ -42,6 +42,7 @@ class Deal:
     basis: str = "평소가"           # 무엇과 비교해 걸렸는지
     week_low_pct: float = 0.0      # 최근 7일 최저가 대비 하락폭
     month_pct: float = 0.0         # 네이버 '같은 달 평소가' 대비 하락폭
+    is_lastminute: bool = False    # 리드타임 안쪽 출발(임박 특가)
 
     @property
     def key(self) -> str:
@@ -158,28 +159,34 @@ def evaluate(dest: Destination, offers: list[Offer]) -> list[Deal]:
 
 
 def evaluate_month(dest: Destination,
-                   priced: list[tuple[Offer, float, str, int]]) -> list[Deal]:
-    """네이버 경로 전용 판정 — '같은 달 평소가'보다 MONTH_DROP_PCT 이상 싼 것.
+                   priced: list[tuple[Offer, float, str, int, bool]]) -> list[Deal]:
+    """네이버 경로 전용 판정.
 
-    이력이 필요 없다. 네이버가 그 달의 다른 날짜들을 한꺼번에 주기 때문에
-    평소값을 그 자리에서 낸다(naver.month_baselines).
+    정상 구간은 '같은 달 평소가'보다 MONTH_DROP_PCT 이상,
+    임박 구간(리드타임 안쪽 출발)은 '정상 구간 평소가'보다 LASTMINUTE_DROP_PCT
+    이상 싼 것을 딜로 본다. 기준선은 naver.month_baselines 가 매겨서 넘겨준다.
+
+    이력이 필요 없다. 네이버가 그 노선의 다른 날짜들을 한꺼번에 주기 때문에
+    평소값을 그 자리에서 낸다.
 
     ⚠거리별 일수 규칙은 여기서 걸지 않는다. 그 규칙 때문에 싼 값을 통째로
     놓치고 있었던 게 이 경로를 만든 이유다.
     """
+    today = dt.date.today()
     found: list[Deal] = []
-    for offer, baseline, basis, peers in sorted(priced, key=lambda x: x[0].price):
+    for offer, baseline, basis, peers, last in sorted(priced, key=lambda x: x[0].price):
         if baseline <= 0:
             continue
         drop = (baseline - offer.price) / baseline * 100.0
-        if drop < config.MONTH_DROP_PCT:
+        if drop < (config.LASTMINUTE_DROP_PCT if last else config.MONTH_DROP_PCT):
             continue
 
+        floor = (config.LASTMINUTE_MIN_WEATHER if last else config.MIN_WEATHER_SCORE)
         w = weather.score(dest, offer.depart_date)
         w_score = w["score"]
         if w_score is None:
-            w_score = float(config.MIN_WEATHER_SCORE)
-        elif w_score < config.MIN_WEATHER_SCORE:
+            w_score = float(floor)
+        elif w_score < floor:
             continue
 
         deal = Deal(
@@ -192,9 +199,18 @@ def evaluate_month(dest: Destination,
             samples=peers,
             basis=f"네이버 {basis}",
             month_pct=round(drop, 1),
+            is_lastminute=last,
         )
         deal.rank = _rank(drop, w_score, offer.transfers)
         deal.notes.append(f"네이버 {basis} {peers}건과 견줌")
+        if last:
+            try:
+                left = (dt.date.fromisoformat(offer.depart_date) - today).days
+                deal.notes.insert(0, f"출발까지 {left}일 — 좌석이 금방 없어진다")
+            except ValueError:
+                pass
+            # 코앞이라 오늘 못 사면 끝이다. 순위를 올려 눈에 먼저 띄게 한다.
+            deal.rank += 5.0
         if offer.transfers == 0:
             deal.notes.append("직항")
         found.append(deal)

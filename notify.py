@@ -158,7 +158,12 @@ def _date_ko(iso: str) -> str:
 # ── 항공권 딜 ────────────────────────────────────────────────────────
 def format_deal(deal: Deal) -> str:
     o = deal.offer
-    head = "🔥 대박" if deal.is_jackpot else "✈️ 특가"
+    if deal.is_jackpot:
+        head = "🔥 대박"
+    elif deal.is_lastminute:
+        head = "⏰ 임박특가"
+    else:
+        head = "✈️ 특가"
     lo, hi, kind = deal.dest.window
     if lo <= o.days <= hi:
         tier = "짧게 다녀오기" if kind == "near" else "길게 다녀오기"

@@ -95,6 +95,18 @@ MONTH_DROP_PCT = _get_float("MONTH_DROP_PCT", 30.0)
 # 182,235원 vs 2~4일 233,666원, 삿포로 7일 264,342원 vs 2~4일 361,840원).
 NAVER_MIN_DAYS = _get_int("NAVER_MIN_DAYS", 2)
 NAVER_MAX_DAYS = _get_int("NAVER_MAX_DAYS", 14)
+# ── 임박 특가 ────────────────────────────────────────────────────────
+# 리드타임(SEARCH_START_DAYS, 기본 14일) 안쪽 출발도 본다. 다만 기준을 달리한다.
+# 임박 구간은 남은 날짜가 다 임박이라 '같은 달 평소가'를 낼 수 없다(비교 상대가
+# 전부 임박이라 다 같이 비싸다). 그래서 **리드타임 바깥의 정상 구간 평소값**과
+# 견준다. "코앞인데도 평소만큼 싸다"가 진짜 임박 특가다.
+LASTMINUTE_ENABLED = _get("LASTMINUTE_ENABLED", "1") not in ("0", "false", "no")
+# 모레부터 본다. 오늘·내일 출발은 알림을 받아도 못 간다.
+LASTMINUTE_MIN_DAYS = _get_int("LASTMINUTE_MIN_DAYS", 2)
+# 정상 구간 평소가 대비 이만큼 싸면 임박 특가
+LASTMINUTE_DROP_PCT = _get_float("LASTMINUTE_DROP_PCT", 25.0)
+# 임박 구간의 날씨 하한은 아래 MIN_WEATHER_SCORE 뒤에서 정한다(그 값을 기본으로 쓴다).
+
 # 이만큼은 모여야 그 달의 '평소값'을 말할 수 있다
 NAVER_MIN_PEERS = _get_int("NAVER_MIN_PEERS", 8)
 # 달 기준값이 노선 전 기간 중앙값의 이 배를 넘으면 표본이 얇은 것이라 버린다
@@ -112,6 +124,13 @@ WEEK_LOW_DAYS = _get_int("WEEK_LOW_DAYS", 7)
 JACKPOT_DROP_PCT = _get_float("JACKPOT_DROP_PCT", 40.0)
 # 날씨 점수 하한 (0~100)
 MIN_WEATHER_SCORE = _get_float("MIN_WEATHER_SCORE", 60.0)
+# 임박 구간의 날씨 하한은 따로 둔다(사용자 확정 2026-08-16: 45점).
+# ⚠임박은 '지금 갈 수 있는 날'이 며칠 안 돼서 평소 하한을 그대로 대면 사실상
+# 아무것도 안 뜬다. 실측: 정상가보다 25% 넘게 싼 임박 표가 여럿 있었는데 8월 말
+# 일본이 폭염·우기라(후쿠오카 27점·오사카 12점·오키나와 10점) 60점에서 전량
+# 탈락했다. 25개 목적지 기준 60점 0건 · 45점 1건 · 30점 3건 · 하한 없음 11건.
+# 45점이면 장마·태풍철 최악(오키나와 10점·마카오 0점)은 여전히 걸러진다.
+LASTMINUTE_MIN_WEATHER = _get_float("LASTMINUTE_MIN_WEATHER", 45.0)
 # 한 번 알림 보낸 (노선,날짜)는 이 기간 동안 다시 안 보냄
 ALERT_COOLDOWN_HOURS = _get_int("ALERT_COOLDOWN_HOURS", 72)
 # 한 번 스캔에 보낼 최대 알림 수
@@ -191,6 +210,10 @@ def summary() -> str:
         (f"또는 네이버 같은 달 평소가 대비 -{MONTH_DROP_PCT:.0f}%"
          f" ({NAVER_MIN_DAYS}~{NAVER_MAX_DAYS}일 일정)" if NAVER_ENABLED
          else "네이버 경로 꺼짐"),
+        (f"임박 특가 {LASTMINUTE_MIN_DAYS}~{SEARCH_START_DAYS}일 뒤 출발 ·"
+         f" 정상 구간 평소가 대비 -{LASTMINUTE_DROP_PCT:.0f}%"
+         f" · 날씨 하한 {LASTMINUTE_MIN_WEATHER:.0f}점"
+         if (NAVER_ENABLED and LASTMINUTE_ENABLED) else "임박 특가 꺼짐"),
         f"날씨 하한 {MIN_WEATHER_SCORE:.0f}점",
         f"쿨다운 {ALERT_COOLDOWN_HOURS}시간 · 스캔당 최대 {MAX_ALERTS_PER_SCAN}건",
     ]
