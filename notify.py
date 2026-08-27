@@ -38,15 +38,22 @@ def _call(method: str, payload: dict) -> dict | None:
     if not config.TELEGRAM_TOKEN:
         print("  [텔레그램] 토큰이 없어 발송을 건너뛴다")
         return None
-    try:
-        resp = requests.post(
-            API.format(token=config.TELEGRAM_TOKEN, method=method),
-            json=payload, timeout=config.HTTP_TIMEOUT,
-        )
-        body = resp.json()
-    except (requests.RequestException, ValueError) as exc:
-        print(f"  [텔레그램] {method} 실패: {exc}")
-        return None
+    url = API.format(token=config.TELEGRAM_TOKEN, method=method)
+    body = None
+    # 텔레그램 쪽에서 연결을 끊는 일이 이따금 있다(ConnectionReset).
+    # 내용 문제가 아니라 길 문제이므로 같은 것을 한 번 더 보낸다.
+    for attempt in range(2):
+        try:
+            resp = requests.post(url, json=payload, timeout=config.HTTP_TIMEOUT)
+            body = resp.json()
+            break
+        except (requests.RequestException, ValueError) as exc:
+            if attempt == 0:
+                print(f"  [텔레그램] {method} 연결 끊김 — 3초 뒤 한 번 더: {exc}")
+                time.sleep(3)
+                continue
+            print(f"  [텔레그램] {method} 실패: {exc}")
+            return None
     if not body.get("ok"):
         print(f"  [텔레그램] {method} 거부: {body.get('description')}")
         return None
@@ -75,8 +82,10 @@ def send(text: str, chat_id: str | None = None,
             # 버튼 때문에 거부당했을 수 있다(주소가 이상하면 텔레그램이 통째로 막는다).
             # 알림을 통째로 날리느니 버튼을 떼고라도 보낸다. 글자 링크는 본문에 남아 있다.
             print("  [텔레그램] 버튼 없이 다시 보낸다")
-            result = _call("sendMessage", dict(payload_base, chat_id=target,
-                                               reply_markup=None))
+            # ⚠ reply_markup=None 으로 두면 텔레그램이
+            #   "object expected as reply markup" 으로 거부한다. 키를 뺀다.
+            bare = {k: v for k, v in payload_base.items() if k != "reply_markup"}
+            result = _call("sendMessage", dict(bare, chat_id=target))
         ok = ok or result is not None
         time.sleep(0.05)
     return ok
