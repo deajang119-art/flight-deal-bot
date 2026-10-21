@@ -10,7 +10,8 @@ Travelpayouts 182,235원), 국내 LCC 직판은 거의 못 본다. 그래서 네
 그 자리에서 계산할 수 있다.** 이게 Travelpayouts 경로와 가장 다른 점이다.
 
 ⚠API 를 두드릴 때 두 가지를 지켜야 한다. 둘 다 실측으로 데였다.
-  1. POST 는 nginx 가 503 으로 막는다 → **GET(쿼리스트링)** 으로 물어야 한다.
+  1. 막히는 방식이 바뀐다. 8월엔 POST 가 503, 9월부터는 거꾸로 GET 이 503 이다
+     (7주 동안 전량 0건). → **POST 먼저, 503 이면 GET** 으로 둘 다 시도한다.
   2. 헤더 `x-apollo-operation-name` 이 없으면 아폴로 서버가 CSRF 로 보고
      전부 거부한다. 이걸 빠뜨려 81곳 전량 0건이 나온 적이 있다.
 
@@ -91,19 +92,21 @@ def fetch(dest_iata: str) -> list[dict]:
         "arrivalLocationType": "airport",
         "tripType": "RT",
     }
-    url = API + "?" + up.urlencode({
-        "operationName": "GET_RECOMMEND_BY_CITY",
-        "query": QUERY,
-        "variables": json.dumps(variables),
-    })
+    payload = {"operationName": "GET_RECOMMEND_BY_CITY", "query": QUERY,
+               "variables": variables}
+    url = API + "?" + up.urlencode({**payload, "variables": json.dumps(variables)})
     session = _get_session()
     for attempt in (1, 2, 3):
         try:
-            resp = session.get(url, timeout=config.HTTP_TIMEOUT)
+            # ⚠POST·GET 중 어느 쪽을 막는지가 바뀐다 — 막힌 쪽이 503 HTML 을 준다
+            resp = session.post(API, json=payload, timeout=config.HTTP_TIMEOUT)
+            if resp.status_code == 503:
+                resp = session.get(url, timeout=config.HTTP_TIMEOUT)
             body = resp.json()
         except (requests.RequestException, ValueError) as exc:
             if attempt == 3:
-                print(f"  [네이버] {dest_iata} 조회 실패: {exc}")
+                code = getattr(locals().get("resp"), "status_code", "?")
+                print(f"  [네이버] {dest_iata} 조회 실패(HTTP {code}): {exc}")
                 return []
             time.sleep(attempt * 2)
             continue

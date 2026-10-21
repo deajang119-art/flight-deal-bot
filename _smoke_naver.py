@@ -30,18 +30,20 @@ print(f"   최저 {sample['minPrice']:,}원 "
       f"{'/'.join(sample['airlineCodes'])} 경유{sample['stops']}")
 
 # 2. 헤더를 빼면 거부되는지 ───────────────────────────────────────────
-url = naver.API + "?" + up.urlencode({
+payload = {
     "operationName": "GET_RECOMMEND_BY_CITY",
     "query": naver.QUERY,
-    "variables": json.dumps({
+    "variables": {
         "departureLocationCode": config.NAVER_ORIGIN_CITY,
         "departureLocationType": "city",
         "arrivalLocationCode": "CTS", "arrivalLocationType": "airport",
-        "tripType": "RT"}),
-})
+        "tripType": "RT"},
+}
 bare = {k: v for k, v in naver.HEADERS.items()
         if k not in ("x-apollo-operation-name", "Content-Type")}
-body = requests.get(url, headers=bare, timeout=30).json()
+bare["Content-Type"] = "text/plain"   # 아폴로 CSRF 가 막는 '단순 요청' 모양
+body = requests.post(naver.API, data=json.dumps(payload), headers=bare,
+                     timeout=30).json()
 blocked = bool(body.get("errors"))
 print(f"2) 헤더 빼고 요청 → {'거부됨(정상)' if blocked else '⚠그냥 통과함'}")
 if blocked:

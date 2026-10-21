@@ -236,25 +236,54 @@ def filter_new(candidates: list[Deal]) -> list[Deal]:
 
 
 def verify(deals: list[Deal]) -> list[Deal]:
-    """Amadeus 키가 있으면 발송 직전에 실시간 가격으로 한 번 더 확인한다."""
-    if not (config.AMADEUS_CLIENT_ID and config.AMADEUS_CLIENT_SECRET):
-        return deals
+    """발송 직전에 지금 가격으로 한 번 더 확인한다.
 
-    import flights
+    Travelpayouts 값은 남들이 며칠 전 검색한 캐시라, 눌러 보면 이미 올라가 있는
+    일이 잦았다(아비아세일즈 '맨날 올라가 있다', 2026-10-21). Amadeus 키가 없으니
+    네이버의 같은 날짜 값으로 대신 확인한다. 네이버 경로 딜은 이미 지금 값이다.
+    """
+    import naver
 
+    rows_by_dest: dict[str, list[dict]] = {}
     kept: list[Deal] = []
     for d in deals:
-        actual = flights.verify_amadeus(d.offer)
-        if actual is None:
-            kept.append(d)                     # 검증 불가는 통과
+        if d.offer.source == "naver":
+            kept.append(d)
             continue
+        if d.dest.iata not in rows_by_dest:
+            rows_by_dest[d.dest.iata] = naver.fetch(d.dest.iata)
+        rows = rows_by_dest[d.dest.iata]
+        if not rows:
+            d.notes.append("지금 값 확인 못 함(캐시 가격)")
+            kept.append(d)                     # 확인 불가는 통과
+            continue
+        dep8 = d.offer.depart_date.replace("-", "")
+        ret8 = d.offer.return_date.replace("-", "")
+        same = [r["minPrice"] for r in rows
+                if r["departureDate"] == dep8 and r["returnDate"] == ret8]
+        if same:
+            actual, basis = min(same), "같은 날짜"
+        else:
+            # 같은 날짜 표가 없으면 같은 달·비슷한 일수(±1일)의 네이버 최저가와
+            # 견준다. 네이버는 부를 때마다 대표 조합을 달리 골라 준다.
+            # (네이버 tripDays 는 출발·귀국일을 다 센 값이다)
+            span = (dt.date.fromisoformat(d.offer.return_date)
+                    - dt.date.fromisoformat(d.offer.depart_date)).days + 1
+            peers = [r["minPrice"] for r in rows
+                     if r["departureDate"][:6] == dep8[:6]
+                     and abs(r.get("tripDays", 0) - span) <= 1]
+            if not peers:
+                d.notes.append("지금 값 확인 못 함(캐시 가격)")
+                kept.append(d)
+                continue
+            actual, basis = min(peers), "같은 달·비슷한 일수 최저"
         d.verified_price = actual
-        # 실시간가가 캐시가보다 30% 넘게 비싸면 이미 팔린 가격이다
-        if actual > d.offer.price * 1.30:
-            print(f"  [검증] {d.dest.label} 탈락: 캐시 {d.offer.price:,} → 실시간 {actual:,}")
+        # 지금 값이 캐시가보다 15% 넘게 비싸면 이미 팔린 가격이다
+        if actual > d.offer.price * 1.15:
+            print(f"  [검증] {d.dest.label} 탈락: 캐시 {d.offer.price:,} → "
+                  f"네이버 {basis} {actual:,}")
             continue
-        if actual > d.offer.price:
-            d.notes.append(f"실시간 {actual:,}원")
+        d.notes.append(f"네이버 지금 {actual:,}원({basis})")
         kept.append(d)
     return kept
 
